@@ -104,6 +104,10 @@ bpred_create(enum bpred_class class,	/* type of predictor to create */
 
     break;
 
+  case BPredGskew:
+    pred->dirpred.gskew = 
+      bpred_dir_create(class, l1size, l2size, shift_width, xor);
+
   case BPred2bit:
     pred->dirpred.bimod = 
       bpred_dir_create(class, bimod_size, 0, 0, 0);
@@ -233,6 +237,60 @@ bpred_dir_create (
       break;
     }
 
+    case BPredGskew:
+    {
+      if (!l1size || (l1size & (l1size-1)) != 0)
+	fatal("level-1 size, `%d', must be non-zero and a power of two", 
+	      l1size);
+      pred_dir->config.gskew.gbhr_size = l1size;
+      
+      if (!l2size || (l2size & (l2size-1)) != 0)
+	fatal("level-2 size, `%d', must be non-zero and a power of two", 
+	      l2size);
+      pred_dir->config.gskew.pht_size = l2size;
+      
+      if (!shift_width || shift_width > 30)
+	fatal("shift register width, `%d', must be non-zero and positive",
+	      shift_width);
+      pred_dir->config.gskew.gbhr_entries = shift_width;
+      
+      pred_dir->config.gskew.xor = xor;
+      pred_dir->config.gskew.gbhr = calloc(l1size, sizeof(int));
+      if (!pred_dir->config.gskew.gbhr)
+	fatal("cannot allocate GBHR table");
+      
+      pred_dir->config.gskew.pht1 = calloc(l2size, sizeof(unsigned char));
+      if (!pred_dir->config.gskew.pht1)
+	fatal("cannot allocate PHT1 table");
+
+      pred_dir->config.gskew.pht2 = calloc(l2size, sizeof(unsigned char));
+      if (!pred_dir->config.gskew.pht2)
+	fatal("cannot allocate PHT2 table");
+
+        pred_dir->config.gskew.pht3 = calloc(l2size, sizeof(unsigned char));
+      if (!pred_dir->config.gskew.pht3)
+	fatal("cannot allocate PHT3 table");
+
+  /* initialize counters to TAKEN */
+
+  for (cnt = 0; cnt < l2size; cnt++)
+	{
+	  pred_dir->config.gskew.pht1[cnt] = 3;
+	}
+
+  for (cnt = 0; cnt < l2size; cnt++)
+	{
+	  pred_dir->config.gskew.pht2[cnt] = 3;
+	}
+
+  for (cnt = 0; cnt < l2size; cnt++)
+	{
+	  pred_dir->config.gskew.pht3[cnt] = 3;
+	}
+
+      break;
+  }
+
   case BPred2bit:
     if (!l1size || (l1size & (l1size-1)) != 0)
       fatal("2bit table size, `%d', must be non-zero and a power of two", 
@@ -278,6 +336,13 @@ bpred_dir_config(
       pred_dir->config.two.xor ? "" : "no", pred_dir->config.two.l2size);
     break;
 
+  case BPredGskew:
+    fprintf(stream,
+      "pred_dir: %s: gskew: %d l1-sz, %d bits/ent, %s xor, %d l2-sz, direct-mapped\n",
+      name, pred_dir->config.gskew.gbhr_size, pred_dir->config.gskew.gbhr_entries,
+      pred_dir->config.gskew.xor ? "" : "no", pred_dir->config.gskew.pht_size);
+    break;
+
   case BPred2bit:
     fprintf(stream, "pred_dir: %s: 2-bit: %d entries, direct-mapped\n",
       name, pred_dir->config.bimod.size);
@@ -313,6 +378,13 @@ bpred_config(struct bpred_t *pred,	/* branch predictor instance */
 
   case BPred2Level:
     bpred_dir_config (pred->dirpred.twolev, "2lev", stream);
+    fprintf(stream, "btb: %d sets x %d associativity", 
+	    pred->btb.sets, pred->btb.assoc);
+    fprintf(stream, "ret_stack: %d entries", pred->retstack.size);
+    break;
+
+  case BPredGskew:
+    bpred_dir_config (pred->dirpred.gskew, "gskew", stream);
     fprintf(stream, "btb: %d sets x %d associativity", 
 	    pred->btb.sets, pred->btb.assoc);
     fprintf(stream, "ret_stack: %d entries", pred->retstack.size);
@@ -363,6 +435,9 @@ bpred_reg_stats(struct bpred_t *pred,	/* branch predictor instance */
       break;
     case BPred2Level:
       name = "bpred_2lev";
+      break;
+    case BPredGskew:
+      name = "bpred_gskew";
       break;
     case BPred2bit:
       name = "bpred_bimod";
@@ -530,6 +605,46 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
         p = &pred_dir->config.two.l2table[l2index];
       }
       break;
+
+    case BPredGskew:
+    {
+
+	      int pc, gbhr_bits;
+        int ph1_pointer, ph2_pointer, ph3_pointer;
+
+        char g = pred_dir->config.gskew.gbhr_entries;
+        char c = log2(pred_dir->config.gskew.pht_size);
+        char i = c - g;
+
+        pc = (baddr >> MD_BR_SHIFT);
+
+        // Realizamos máscara de bits en el registro GBHR y concatenamos desplazando el PC g veces
+        gbhr_bits = pred_dir->config.gskew.gbhr[0];
+
+        // Puntero PHT1
+        int mask_g = (1 << g) - 1;
+        ph1_pointer = (pc << g) | (gbhr_bits & mask_g);
+
+        // Puntero PHT2
+        int mask_i = (1 << i) - 1;
+        ph2_pointer = (gbhr_bits << i) | (pc & mask_i);
+
+        // Puntero PHT3
+        ph3_pointer = ~((pc & mask_i) ^ (gbhr_bits & mask_g));
+
+        // Ponemos solo los bits necesarios que indican el índice de la tabla PHT
+        int mask_c = (1 << c) - 1;
+        ph1_pointer = ph1_pointer & mask_c;
+        ph2_pointer = ph2_pointer & mask_c;
+        ph3_pointer = ph3_pointer & mask_c;
+
+
+        // Pasar los punteros por referencia
+
+
+    }
+    break;
+
     case BPred2bit:
       p = &pred_dir->config.bimod.table[BIMOD_HASH(pred_dir, baddr)];
       break;

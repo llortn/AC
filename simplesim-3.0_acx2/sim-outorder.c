@@ -123,6 +123,11 @@ static int twolev_nelt = 4;
 static int twolev_config[4] =
   { /* l1size */1, /* l2size */1024, /* hist */8, /* xor */FALSE};
 
+/* gskew predictor config (<l1size> <l2size> <hist_size> <xor>) */
+static int gskew_nelt = 4;
+static int gskew_config[4] =
+  { /* l1size */1, /* l2size */1024, /* hist */8, /* xor */FALSE};
+
 /* combining predictor config (<meta_table_size> */
 static int comb_nelt = 1;
 static int comb_config[1] =
@@ -667,6 +672,13 @@ sim_reg_options(struct opt_odb_t *odb)
 		   /* default */twolev_config,
                    /* print */TRUE, /* format */NULL, /* !accrue */FALSE);
 
+  opt_reg_int_list(odb, "-bpred:gskew",
+                   "gskew predictor config "
+		   "(<l1size> <l2size> <hist_size> <xor>)",
+       gskew_config, gskew_nelt, &gskew_nelt,
+		   /* default */gskew_config,
+                   /* print */TRUE, /* format */NULL, /* !accrue */FALSE);
+
   opt_reg_int_list(odb, "-bpred:comb",
 		   "combining predictor config (<meta_table_size>)",
 		   comb_config, comb_nelt, &comb_nelt,
@@ -948,6 +960,24 @@ sim_check_options(struct opt_odb_t *odb,        /* options database */
 			  /* meta table size */0,
 			  /* history reg size */twolev_config[2],
 			  /* history xor address */twolev_config[3],
+			  /* btb sets */btb_config[0],
+			  /* btb assoc */btb_config[1],
+			  /* ret-addr stack size */ras_size);
+    } else if (!mystricmp(pred_type, "gskew"))
+    {
+      /* gskew adaptive predictor, bpred_create() checks args */
+      if (gskew_nelt != 4)
+	fatal("bad gskew pred config (<l1size> <l2size> <hist_size> <xor>)");
+      if (btb_nelt != 2)
+	fatal("bad btb config (<num_sets> <associativity>)");
+
+      pred = bpred_create(BPredGskew,
+			  /* bimod table size */0,
+			  /* 2lev l1 size */gskew_config[0],
+			  /* 2lev l2 size */gskew_config[1],
+			  /* meta table size */0,
+			  /* history reg size */gskew_config[2],
+			  /* history xor address */gskew_config[3],
 			  /* btb sets */btb_config[0],
 			  /* btb assoc */btb_config[1],
 			  /* ret-addr stack size */ras_size);

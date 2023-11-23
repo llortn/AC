@@ -104,7 +104,8 @@ enum bpred_class {
   BPred2bit,			/* 2-bit saturating cntr pred (dir mapped) */
   BPredTaken,			/* static predict taken */
   BPredNotTaken,		/* static predict not taken */
-  BPred_NUM
+  BPred_NUM,
+  BPredGskew      /* Predictor propio Gskew */
 };
 
 /* an entry in a BTB */
@@ -131,6 +132,17 @@ struct bpred_dir_t {
       int *shiftregs;		/* level-1 history table */
       unsigned char *l2table;	/* level-2 prediction state table */
     } two;
+
+    struct {
+      int gbhr_size;		/* GBHR size */
+      int pht_size;		/* Tablas PHT size */
+      int gbhr_entries;		/* Entradas GBHR */
+      int xor;			/* history xor address flag */
+      int *gbhr;		/* Puntero a GBHR */
+      unsigned char *pht1;  /* Puntero a PHT de nivel 1 */
+      unsigned char *pht2;  /* Puntero a PHT de nivel 2 */
+      unsigned char *pht3;  /* Puntero a PHT de nivel 3 */
+    } gskew;
   } config;
 };
 
@@ -141,6 +153,7 @@ struct bpred_t {
     struct bpred_dir_t *bimod;	  /* first direction predictor */
     struct bpred_dir_t *twolev;	  /* second direction predictor */
     struct bpred_dir_t *meta;	  /* meta predictor */
+    struct bpred_dir_t *gskew;
   } dirpred;
 
   struct {
