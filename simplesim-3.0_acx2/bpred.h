@@ -136,7 +136,7 @@ struct bpred_dir_t {
     struct {
       int gbhr_size;		/* GBHR size */
       int pht_size;		/* Tablas PHT size */
-      int gbhr_entries;		/* Entradas GBHR */
+      int gbhr_width;		/* Entradas GBHR */
       int xor;			/* history xor address flag */
       int *gbhr;		/* Puntero a GBHR */
       unsigned char *pht1;  /* Puntero a PHT de nivel 1 */

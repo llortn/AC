@@ -252,7 +252,7 @@ bpred_dir_create (
       if (!shift_width || shift_width > 30)
 	fatal("shift register width, `%d', must be non-zero and positive",
 	      shift_width);
-      pred_dir->config.gskew.gbhr_entries = shift_width;
+      pred_dir->config.gskew.gbhr_width = shift_width;
       
       pred_dir->config.gskew.xor = xor;
       pred_dir->config.gskew.gbhr = calloc(l1size, sizeof(int));
@@ -339,7 +339,7 @@ bpred_dir_config(
   case BPredGskew:
     fprintf(stream,
       "pred_dir: %s: gskew: %d l1-sz, %d bits/ent, %s xor, %d l2-sz, direct-mapped\n",
-      name, pred_dir->config.gskew.gbhr_size, pred_dir->config.gskew.gbhr_entries,
+      name, pred_dir->config.gskew.gbhr_size, pred_dir->config.gskew.gbhr_width,
       pred_dir->config.gskew.xor ? "" : "no", pred_dir->config.gskew.pht_size);
     break;
 
@@ -609,10 +609,13 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
     case BPredGskew:
     {
 
-	      int pc, gbhr_bits;
-        int ph1_pointer, ph2_pointer, ph3_pointer;
+	      md_addr_t pc;
+        int gbhr_bits;
+        int pht1_index, pht2_index, pht3_index;
 
-        char g = pred_dir->config.gskew.gbhr_entries;
+        p = (unsigned char*) malloc (3 * sizeof(unsigned char));
+
+        char g = pred_dir->config.gskew.gbhr_width;
         char c = log2(pred_dir->config.gskew.pht_size);
         char i = c - g;
 
@@ -621,25 +624,23 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
         // Realizamos máscara de bits en el registro GBHR y concatenamos desplazando el PC g veces
         gbhr_bits = pred_dir->config.gskew.gbhr[0];
 
+        int mask_c = (1 << c) - 1;
+
         // Puntero PHT1
         int mask_g = (1 << g) - 1;
-        ph1_pointer = (pc << g) | (gbhr_bits & mask_g);
+        pht1_index = ((pc << g) | (gbhr_bits & mask_g)) & mask_c;
 
         // Puntero PHT2
         int mask_i = (1 << i) - 1;
-        ph2_pointer = (gbhr_bits << i) | (pc & mask_i);
+        pht2_index = ((gbhr_bits << i) | (pc & mask_i)) & mask_c;
 
         // Puntero PHT3
-        ph3_pointer = ~((pc & mask_i) ^ (gbhr_bits & mask_g));
+        pht3_index = (~((pc & mask_i) ^ (gbhr_bits & mask_g))) & mask_c;
 
         // Ponemos solo los bits necesarios que indican el índice de la tabla PHT
-        int mask_c = (1 << c) - 1;
-        ph1_pointer = ph1_pointer & mask_c;
-        ph2_pointer = ph2_pointer & mask_c;
-        ph3_pointer = ph3_pointer & mask_c;
-
-
-        // Pasar los punteros por referencia
+        p[0] = &pred_dir->config.gskew.pht1[pht1_index];
+        p[1] = &pred_dir->config.gskew.pht2[pht2_index];
+        p[2] = &pred_dir->config.gskew.pht3[pht3_index];
 
 
     }
@@ -724,6 +725,21 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
 	    bpred_dir_lookup (pred->dirpred.twolev, baddr);
 	}
       break;
+
+    case BPredGskew:
+      if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
+	{
+    char* preds = bpred_dir_lookup (pred->dirpred.gskew, baddr);
+    char pred1 = preds[0] & 2;
+    char pred2 = preds[1] & 2;
+    char pred3 = preds[2] & 2;
+
+    // Determinamos si taken o nottaken en función de si se dio taken al menos dos veces.
+    char most = ((pred1 + pred2 + pred3) > 1);
+	  dir_update_ptr->pdir1 = most;
+	}
+      break;
+
     case BPred2bit:
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
@@ -953,6 +969,57 @@ bpred_update(struct bpred_t *pred,	/* branch predictor instance */
 	(pred->dirpred.twolev->config.two.shiftregs[l1index] << 1) | (!!taken);
       pred->dirpred.twolev->config.two.shiftregs[l1index] =
 	shift_reg & ((1 << pred->dirpred.twolev->config.two.shift_width) - 1);
+    }
+
+  if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND) &&
+      (pred->class == BPredGskew))
+    {
+
+        	      md_addr_t pc;
+        int gbhr_bits, shift_reg;
+        int pht1_index, pht2_index, pht3_index;
+
+        char g = pred->dirpred.gskew->config.gskew.gbhr_width;
+        char c = log2(pred->dirpred.gskew->config.gskew.pht_size);
+        char i = c - g;
+
+        pc = (baddr >> MD_BR_SHIFT);
+
+        // Realizamos máscara de bits en el registro GBHR y concatenamos desplazando el PC g veces
+        gbhr_bits = pred->dirpred.gskew->config.gskew.gbhr[0];
+
+        int mask_c = (1 << c) - 1;
+
+        // Puntero PHT1
+        int mask_g = (1 << g) - 1;
+        pht1_index = ((pc << g) | (gbhr_bits & mask_g)) & mask_c;
+
+        // Puntero PHT2
+        int mask_i = (1 << i) - 1;
+        pht2_index = ((gbhr_bits << i) | (pc & mask_i)) & mask_c;
+
+        // Puntero PHT3
+        pht3_index = (~((pc & mask_i) ^ (gbhr_bits & mask_g))) & mask_c;
+
+        // Guardamos si fue taken o not taken en el GBHR
+        shift_reg = (pred->dirpred.gskew->config.gskew.gbhr[0] << 1) | (!!taken);
+        pred->dirpred.gskew->config.gskew.gbhr[0] = shift_reg & ((1 << pred->dirpred.gskew->config.gskew.gbhr_width) - 1);
+
+        // Modificar los PHTs
+        if(taken == 1) {
+
+          if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] < 3) pred->dirpred.gskew->config.gskew.pht1[pht1_index] += 1;
+          if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] < 3) pred->dirpred.gskew->config.gskew.pht2[pht2_index] += 1;
+          if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] < 3) pred->dirpred.gskew->config.gskew.pht3[pht3_index] += 1;
+            
+        } else {
+
+          if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] > 0) pred->dirpred.gskew->config.gskew.pht1[pht1_index] -= 1;
+          if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] > 0) pred->dirpred.gskew->config.gskew.pht2[pht2_index] -= 1;
+          if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] > 0) pred->dirpred.gskew->config.gskew.pht3[pht3_index] -= 1;
+
+        }
+
     }
 
   /* find BTB entry if it's a taken branch (don't allocate for non-taken) */
