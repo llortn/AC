@@ -258,7 +258,7 @@ bpred_dir_create (
       if (!pred_dir->config.gskew.gbhr)
 	fatal("cannot allocate GBHR table");
       
-      pred_dir->config.gskew.pht1 = calloc(l2size, l2size *  sizeof(unsigned char));
+      pred_dir->config.gskew.pht1 = calloc(l2size, l2size * sizeof(unsigned char));
       if (!pred_dir->config.gskew.pht1)
 	fatal("cannot allocate PHT1 table");
 
@@ -564,7 +564,7 @@ bpred_after_priming(struct bpred_t *bpred)
 /* predicts a branch direction */
 char *						/* pointer to counter */
 bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
-		 md_addr_t baddr)		/* branch address */
+		 md_addr_t baddr, unsigned char* pred1, unsigned char* pred2, unsigned char* pred3)		/* branch address */
 {
   unsigned char *p = NULL;
 
@@ -612,8 +612,6 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
         int gbhr_bits;
         int pht1_index, pht2_index, pht3_index;
 
-        p = (unsigned char*) malloc (3 * sizeof(unsigned char));
-
         char g = pred_dir->config.gskew.gbhr_width;
         char c = log2(pred_dir->config.gskew.pht_size);
         char i = c - g;
@@ -637,9 +635,9 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
         pht3_index = (~((pc & mask_i) ^ (gbhr_bits & mask_g))) & mask_c;
 
         // Ponemos solo los bits necesarios que indican el índice de la tabla PHT
-        p[0] = &pred_dir->config.gskew.pht1[pht1_index];
-        p[1] = &pred_dir->config.gskew.pht2[pht2_index];
-        p[2] = &pred_dir->config.gskew.pht3[pht3_index];
+        pred1 = &pred_dir->config.gskew.pht1[pht1_index];
+        pred2 = &pred_dir->config.gskew.pht2[pht2_index];
+        pred3 = &pred_dir->config.gskew.pht3[pht3_index];
 
 
     }
@@ -698,9 +696,9 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
 	  char *bimod, *twolev, *meta;
-	  bimod = bpred_dir_lookup (pred->dirpred.bimod, baddr);
-	  twolev = bpred_dir_lookup (pred->dirpred.twolev, baddr);
-	  meta = bpred_dir_lookup (pred->dirpred.meta, baddr);
+	  bimod = bpred_dir_lookup (pred->dirpred.bimod, baddr, NULL, NULL, NULL);
+	  twolev = bpred_dir_lookup (pred->dirpred.twolev, baddr, NULL, NULL, NULL);
+	  meta = bpred_dir_lookup (pred->dirpred.meta, baddr, NULL, NULL, NULL);
 	  dir_update_ptr->pmeta = meta;
 	  dir_update_ptr->dir.meta  = (*meta >= 2);
 	  dir_update_ptr->dir.bimod = (*bimod >= 2);
@@ -721,21 +719,24 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
 	  dir_update_ptr->pdir1 =
-	    bpred_dir_lookup (pred->dirpred.twolev, baddr);
+	    bpred_dir_lookup (pred->dirpred.twolev, baddr, NULL, NULL, NULL);
 	}
       break;
 
     case BPredGskew:
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
-    char* preds = bpred_dir_lookup (pred->dirpred.gskew, baddr);
-    char pred1 = preds[0] & 2;
-    char pred2 = preds[1] & 2;
-    char pred3 = preds[2] & 2;
+
+    unsigned char* pred1 = NULL;
+    unsigned char* pred2 = NULL;
+    unsigned char* pred3 = NULL;
+
+    bpred_dir_lookup(pred->dirpred.gskew, baddr, &pred1, &pred2, &pred3);
+
 
     // Determinamos si taken o nottaken en función de si se dio taken al menos dos veces.
-    char most = ((pred1 + pred2 + pred3) > 1);
-	  dir_update_ptr->pdir1 = most;
+    //char most = ((pred1 + pred2 + pred3) > 1);
+	  dir_update_ptr->pdir1 = &pred1;
 	}
       break;
 
@@ -743,7 +744,7 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
 	  dir_update_ptr->pdir1 =
-	    bpred_dir_lookup (pred->dirpred.bimod, baddr);
+	    bpred_dir_lookup (pred->dirpred.bimod, baddr, NULL, NULL, NULL);
 	}
       break;
     case BPredTaken:
