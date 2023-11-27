@@ -107,6 +107,7 @@ bpred_create(enum bpred_class class,	/* type of predictor to create */
   case BPredGskew:
     pred->dirpred.gskew = 
       bpred_dir_create(class, l1size, l2size, shift_width, xor);
+      break;
 
   case BPred2bit:
     pred->dirpred.bimod = 
@@ -126,6 +127,7 @@ bpred_create(enum bpred_class class,	/* type of predictor to create */
   case BPredComb:
   case BPred2Level:
   case BPred2bit:
+  case BPredGskew:
     {
       int i;
 
@@ -239,19 +241,16 @@ bpred_dir_create (
 
     case BPredGskew:
     {
-      if (!l1size || (l1size & (l1size-1)) != 0)
-	fatal("level-1 size, `%d', must be non-zero and a power of two", 
-	      l1size);
+      if (!l1size || l1size != 1)
+	fatal("GBHR size, `%d', debe ser 1", l1size);
       pred_dir->config.gskew.gbhr_size = l1size;
       
-      if (!l2size || (l2size & (l2size-1)) != 0)
-	fatal("level-2 size, `%d', must be non-zero and a power of two", 
-	      l2size);
+      if (!l2size || l2size != 4 && l2size != 16 && l2size != 64 && l2size != 256 && l2size != 1024)
+	fatal("PHT size, `%d', debe ser 4, 16, 64, 256 o 1024", l2size);
       pred_dir->config.gskew.pht_size = l2size;
       
-      if (!shift_width || shift_width > 30)
-	fatal("shift register width, `%d', must be non-zero and positive",
-	      shift_width);
+      if (!shift_width || shift_width < 1 || shift_width > 5)
+	fatal("shift register width, `%d', debe ser un número entre 1-5", shift_width);
       pred_dir->config.gskew.gbhr_width = shift_width;
       
       pred_dir->config.gskew.xor = xor;
@@ -259,15 +258,15 @@ bpred_dir_create (
       if (!pred_dir->config.gskew.gbhr)
 	fatal("cannot allocate GBHR table");
       
-      pred_dir->config.gskew.pht1 = calloc(l2size, sizeof(unsigned char));
+      pred_dir->config.gskew.pht1 = calloc(l2size, l2size *  sizeof(unsigned char));
       if (!pred_dir->config.gskew.pht1)
 	fatal("cannot allocate PHT1 table");
 
-      pred_dir->config.gskew.pht2 = calloc(l2size, sizeof(unsigned char));
+      pred_dir->config.gskew.pht2 = calloc(l2size, l2size * sizeof(unsigned char));
       if (!pred_dir->config.gskew.pht2)
 	fatal("cannot allocate PHT2 table");
 
-        pred_dir->config.gskew.pht3 = calloc(l2size, sizeof(unsigned char));
+        pred_dir->config.gskew.pht3 = calloc(l2size, l2size * sizeof(unsigned char));
       if (!pred_dir->config.gskew.pht3)
 	fatal("cannot allocate PHT3 table");
 
@@ -975,7 +974,7 @@ bpred_update(struct bpred_t *pred,	/* branch predictor instance */
       (pred->class == BPredGskew))
     {
 
-        	      md_addr_t pc;
+        md_addr_t pc;
         int gbhr_bits, shift_reg;
         int pht1_index, pht2_index, pht3_index;
 
@@ -1006,14 +1005,20 @@ bpred_update(struct bpred_t *pred,	/* branch predictor instance */
         pred->dirpred.gskew->config.gskew.gbhr[0] = shift_reg & ((1 << pred->dirpred.gskew->config.gskew.gbhr_width) - 1);
 
         // Modificar los PHTs
-        if(taken == 1) {
+        if(taken != 0) {
 
-          if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] < 3) pred->dirpred.gskew->config.gskew.pht1[pht1_index] += 1;
-          if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] < 3) pred->dirpred.gskew->config.gskew.pht2[pht2_index] += 1;
-          if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] < 3) pred->dirpred.gskew->config.gskew.pht3[pht3_index] += 1;
+          if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] < 3 && ((pred->dirpred.gskew->config.gskew.pht1[pht1_index])&2) == 1)
+              pred->dirpred.gskew->config.gskew.pht1[pht1_index] += 1;
+
+          if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] < 3 && ((pred->dirpred.gskew->config.gskew.pht2[pht2_index])&2) == 1)
+              pred->dirpred.gskew->config.gskew.pht2[pht2_index] += 1;
+
+          if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] < 3 && ((pred->dirpred.gskew->config.gskew.pht3[pht3_index])&2) == 1)
+              pred->dirpred.gskew->config.gskew.pht3[pht3_index] += 1;
             
         } else {
 
+          // Casos not-taken
           if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] > 0) pred->dirpred.gskew->config.gskew.pht1[pht1_index] -= 1;
           if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] > 0) pred->dirpred.gskew->config.gskew.pht2[pht2_index] -= 1;
           if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] > 0) pred->dirpred.gskew->config.gskew.pht3[pht3_index] -= 1;
