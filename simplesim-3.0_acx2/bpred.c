@@ -59,6 +59,8 @@
 #include "machine.h"
 #include "bpred.h"
 
+gskew_dirs predictions;
+
 /* turn this on to enable the SimpleScalar 2.0 RAS bug */
 /* #define RAS_BUG_COMPATIBLE */
 /* create a branch predictor */
@@ -270,6 +272,7 @@ bpred_dir_create (
 	fatal("cannot allocate PHT3 table");
 
   /* initialize counters to TAKEN */
+
   pred_dir->config.gskew.gbhr[0] = 0xFFFFFFFF;
 
   for (cnt = 0; cnt < l2size; cnt++)
@@ -564,7 +567,7 @@ bpred_after_priming(struct bpred_t *bpred)
 /* predicts a branch direction */
 char *						/* pointer to counter */
 bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
-		 md_addr_t baddr, unsigned char *pred1, unsigned char *pred2, unsigned char *pred3)		/* branch address */
+		 md_addr_t baddr)		/* branch address */
 {
   unsigned char *p = NULL;
 
@@ -606,9 +609,8 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
       break;
 
     case BPredGskew:
-    {
-
-	      md_addr_t pc;
+  {
+        md_addr_t pc;
         int gbhr_bits;
         int pht1_index, pht2_index, pht3_index;
 
@@ -627,6 +629,7 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
         int mask_g = (1 << g) - 1;
         pht1_index = ((pc << g) | (gbhr_bits & mask_g)) & mask_c;
 
+
         // Puntero PHT2
         int mask_i = (1 << i) - 1;
         pht2_index = (((gbhr_bits & mask_g) << i) | (pc & mask_i)) & mask_c;
@@ -636,21 +639,18 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
 
         // Ponemos solo los bits necesarios que indican el índice de la tabla PHT
         if(pht1_index >= 0 && pht1_index < pred_dir->config.gskew.pht_size) {
-            pred1 = (char *) &pred_dir->config.gskew.pht1[pht1_index];
+            predictions.dir1 = pht1_index;
         } else fprintf(stderr, "Error: Pred1 ha intentado acceder a índice fuera de rango nº %d", pht1_index);
 
         if(pht2_index >= 0 && pht2_index < pred_dir->config.gskew.pht_size) {
-            pred2 = (char *) &pred_dir->config.gskew.pht2[pht2_index];
+            predictions.dir2 = pht2_index;
         } else fprintf(stderr, "Error: Pred2 ha intentado acceder a índice fuera de rango nº %d", pht2_index);
 
         if(pht3_index >= 0 && pht3_index < pred_dir->config.gskew.pht_size) {
-            pred3 = (char *) &pred_dir->config.gskew.pht3[pht3_index];
+            predictions.dir3 = pht3_index;
         } else fprintf(stderr, "Error: Pred3 ha intentado acceder a índice fuera de rango nº %d", pht3_index);
-
-        p = pred1;
-
-    }
-    break;
+  }
+  break;
 
     case BPred2bit:
       p = &pred_dir->config.bimod.table[BIMOD_HASH(pred_dir, baddr)];
@@ -699,15 +699,18 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
   dir_update_ptr->pdir1 = NULL;
   dir_update_ptr->pdir2 = NULL;
   dir_update_ptr->pmeta = NULL;
+  predictions.dir1 = NULL;
+  predictions.dir2 = NULL;
+  predictions.dir3 = NULL;
   /* Except for jumps, get a pointer to direction-prediction bits */
   switch (pred->class) {
     case BPredComb:
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
 	  char *bimod, *twolev, *meta;
-	  bimod = bpred_dir_lookup (pred->dirpred.bimod, baddr, NULL, NULL, NULL);
-	  twolev = bpred_dir_lookup (pred->dirpred.twolev, baddr, NULL, NULL, NULL);
-	  meta = bpred_dir_lookup (pred->dirpred.meta, baddr, NULL, NULL, NULL);
+	  bimod = bpred_dir_lookup (pred->dirpred.bimod, baddr);
+	  twolev = bpred_dir_lookup (pred->dirpred.twolev, baddr);
+	  meta = bpred_dir_lookup (pred->dirpred.meta, baddr);
 	  dir_update_ptr->pmeta = meta;
 	  dir_update_ptr->dir.meta  = (*meta >= 2);
 	  dir_update_ptr->dir.bimod = (*bimod >= 2);
@@ -728,7 +731,7 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
 	  dir_update_ptr->pdir1 =
-	    bpred_dir_lookup (pred->dirpred.twolev, baddr, NULL, NULL, NULL);
+	    bpred_dir_lookup (pred->dirpred.twolev, baddr);
 	}
       break;
 
@@ -736,15 +739,8 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
 
-    unsigned char* pred1 = NULL;
-    unsigned char* pred2 = NULL;
-    unsigned char* pred3 = NULL;
-
-
-
-    // Determinamos si taken o nottaken en función de si se dio taken al menos dos veces.
-    //char most = ((pred1 + pred2 + pred3) > 1);
-	  dir_update_ptr->pdir1 = bpred_dir_lookup(pred->dirpred.gskew, baddr, &pred1, &pred2, &pred3);
+    bpred_dir_lookup (pred->dirpred.twolev, baddr);
+    
 	}
       break;
 
@@ -752,7 +748,7 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
 	  dir_update_ptr->pdir1 =
-	    bpred_dir_lookup (pred->dirpred.bimod, baddr, NULL, NULL, NULL);
+	    bpred_dir_lookup (pred->dirpred.bimod, baddr);
 	}
       break;
     case BPredTaken:
@@ -983,31 +979,17 @@ bpred_update(struct bpred_t *pred,	/* branch predictor instance */
       (pred->class == BPredGskew))
     {
 
-        md_addr_t pc;
-        int gbhr_bits, shift_reg;
+        int shift_reg;
         int pht1_index, pht2_index, pht3_index;
 
-        char g = pred->dirpred.gskew->config.gskew.gbhr_width;
-        char c = log2(pred->dirpred.gskew->config.gskew.pht_size);
-        char i = c - g;
-
-        pc = (baddr >> MD_BR_SHIFT);
-
-        // Realizamos máscara de bits en el registro GBHR y concatenamos desplazando el PC g veces
-        gbhr_bits = pred->dirpred.gskew->config.gskew.gbhr[0];
-
-        int mask_c = (1 << c) - 1;
-
         // Puntero PHT1
-        int mask_g = (1 << g) - 1;
-        pht1_index = ((pc << g) | (gbhr_bits & mask_g)) & mask_c;
+        pht1_index = predictions.dir1;
 
         // Puntero PHT2
-        int mask_i = (1 << i) - 1;
-        pht2_index = (((gbhr_bits & mask_g) << i) | (pc & mask_i)) & mask_c;
+        pht2_index = predictions.dir2;
 
         // Puntero PHT3
-        pht3_index = (~((pc & mask_c) ^ (gbhr_bits & mask_c))) & mask_c;
+        pht3_index = predictions.dir3;
 
         // Guardamos si fue taken o not taken en el GBHR
         shift_reg = (pred->dirpred.gskew->config.gskew.gbhr[0] << 1) | (!!taken);

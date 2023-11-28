@@ -97,6 +97,12 @@
  *
  */
 
+typedef struct {
+  int dir1;
+  int dir2;
+  int dir3;
+} gskew_dirs;
+
 /* branch predictor types */
 enum bpred_class {
   BPredComb,                    /* combined predictor (McFarling) */
@@ -143,6 +149,7 @@ struct bpred_dir_t {
       unsigned char *pht2;  /* Puntero a PHT de nivel 2 */
       unsigned char *pht3;  /* Puntero a PHT de nivel 3 */
     } gskew;
+
   } config;
 };
 
