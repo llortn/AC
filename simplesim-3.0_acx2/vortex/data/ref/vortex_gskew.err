@@ -6,9 +6,9 @@ entity, or for any commercial purpose, without the prior written permission
 of SimpleScalar, LLC (info@simplescalar.com).
 
 warning: section `.comment' ignored...
-sim: command line: ../../../sim-outorder -fastfwd 100000000 -max:inst 100000000 -mem:lat 300 2 -mem:width 32 -bpred:gskew 1 1024 5 0 -bpred gskew ../../exe/vortex.exe lendian1.raw 
+sim: command line: ../../../sim-outorder -fastfwd 100000000 -max:inst 100000000 -mem:lat 300 2 -mem:width 32 -bpred:gskew 1 256 5 0 -bpred gskew ../../exe/vortex.exe lendian1.raw 
 
-sim: simulation started @ Tue Nov 28 16:47:15 2023, options follow:
+sim: simulation started @ Tue Dec  5 20:12:20 2023, options follow:
 
 sim-outorder: This simulator implements a very detailed out-of-order issue
 superscalar processor with a two-level memory system and speculative
@@ -36,7 +36,7 @@ latency of all pipeline operations.
 -bpred                  gskew # branch predictor type {nottaken|taken|perfect|bimod|2lev|comb}
 -bpred:bimod     2048 # bimodal predictor config (<table size>)
 -bpred:2lev      1 1024 8 0 # 2-level predictor config (<l1size> <l2size> <hist_size> <xor>)
--bpred:gskew     1 1024 5 0 # gskew predictor config (<l1size> <l2size> <hist_size> <xor>)
+-bpred:gskew     1 256 5 0 # gskew predictor config (<l1size> <l2size> <hist_size> <xor>)
 -bpred:comb      1024 # combining predictor config (<meta_table_size>)
 -bpred:ras                  8 # return address stack size (0 for no return stack)
 -bpred:btb       512 4 # BTB config (<num_sets> <associativity>)

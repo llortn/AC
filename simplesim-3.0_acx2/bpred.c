@@ -610,9 +610,13 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
 
     case BPredGskew:
   {
+
+
         md_addr_t pc;
         int gbhr_bits;
         int pht1_index, pht2_index, pht3_index;
+        int val1, val2, val3;
+        int mayoria;
 
         char g = pred_dir->config.gskew.gbhr_width;
         char c = log2(pred_dir->config.gskew.pht_size);
@@ -640,15 +644,32 @@ bpred_dir_lookup(struct bpred_dir_t *pred_dir,	/* branch dir predictor inst */
         // Ponemos solo los bits necesarios que indican el índice de la tabla PHT
         if(pht1_index >= 0 && pht1_index < pred_dir->config.gskew.pht_size) {
             predictions.dir1 = pht1_index;
+            val1 = pred_dir->config.gskew.pht1[pht1_index];
         } else fprintf(stderr, "Error: Pred1 ha intentado acceder a índice fuera de rango nº %d", pht1_index);
 
         if(pht2_index >= 0 && pht2_index < pred_dir->config.gskew.pht_size) {
             predictions.dir2 = pht2_index;
+            val2 = pred_dir->config.gskew.pht2[pht2_index];
         } else fprintf(stderr, "Error: Pred2 ha intentado acceder a índice fuera de rango nº %d", pht2_index);
 
         if(pht3_index >= 0 && pht3_index < pred_dir->config.gskew.pht_size) {
             predictions.dir3 = pht3_index;
+            val3 = pred_dir->config.gskew.pht3[pht3_index];
         } else fprintf(stderr, "Error: Pred3 ha intentado acceder a índice fuera de rango nº %d", pht3_index);
+
+
+
+      mayoria = ((val1 + val2 + val3) / 3) & 2;
+
+      if((pred_dir->config.gskew.pht1[pht1_index])&2 == mayoria) {
+        p = &pred_dir->config.gskew.pht1[pht1_index];
+      } else if ((pred_dir->config.gskew.pht2[pht2_index])&2 == mayoria) {
+        p = &pred_dir->config.gskew.pht2[pht2_index];
+      } else {
+        p = &pred_dir->config.gskew.pht3[pht3_index];
+      }
+        
+
   }
   break;
 
@@ -739,7 +760,7 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
       if ((MD_OP_FLAGS(op) & (F_CTRL|F_UNCOND)) != (F_CTRL|F_UNCOND))
 	{
 
-    bpred_dir_lookup (pred->dirpred.twolev, baddr);
+    dir_update_ptr->pdir1 = bpred_dir_lookup (pred->dirpred.gskew, baddr);
     
 	}
       break;
@@ -849,6 +870,7 @@ bpred_lookup(struct bpred_t *pred,	/* branch predictor instance */
 	      ? /* taken */ pbtb->target
 	      : /* not taken */ 0);
     }
+    
 }
 
 /* Speculative execution can corrupt the ret-addr stack.  So for each
@@ -979,6 +1001,7 @@ bpred_update(struct bpred_t *pred,	/* branch predictor instance */
       (pred->class == BPredGskew))
     {
 
+
         int shift_reg;
         int pht1_index, pht2_index, pht3_index;
 
@@ -996,23 +1019,59 @@ bpred_update(struct bpred_t *pred,	/* branch predictor instance */
         pred->dirpred.gskew->config.gskew.gbhr[0] = shift_reg & ((1 << pred->dirpred.gskew->config.gskew.gbhr_width) - 1);
 
         // Modificar los PHTs
-        if(taken != 0) {
+        if(correct) {
 
-          if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] < 3 && ((pred->dirpred.gskew->config.gskew.pht1[pht1_index])&2) == 1)
-              pred->dirpred.gskew->config.gskew.pht1[pht1_index] += 1;
+          // Tomado
+          if(taken != 0) {
 
-          if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] < 3 && ((pred->dirpred.gskew->config.gskew.pht2[pht2_index])&2) == 1)
-              pred->dirpred.gskew->config.gskew.pht2[pht2_index] += 1;
+            if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] == 2)
+                pred->dirpred.gskew->config.gskew.pht1[pht1_index] += 1;
 
-          if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] < 3 && ((pred->dirpred.gskew->config.gskew.pht3[pht3_index])&2) == 1)
-              pred->dirpred.gskew->config.gskew.pht3[pht3_index] += 1;
+            if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] == 2)
+                pred->dirpred.gskew->config.gskew.pht2[pht2_index] += 1;
+
+            if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] == 2)
+                pred->dirpred.gskew->config.gskew.pht3[pht3_index] += 1;
+
+          } else {
+
+            if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] > 0 && pred->dirpred.gskew->config.gskew.pht1[pht1_index] < 2)
+                pred->dirpred.gskew->config.gskew.pht1[pht1_index] -= 1;
+
+            if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] > 0 && pred->dirpred.gskew->config.gskew.pht2[pht2_index] < 2)
+                pred->dirpred.gskew->config.gskew.pht2[pht2_index] -= 1;
+
+            if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] > 0 && pred->dirpred.gskew->config.gskew.pht3[pht3_index] < 2)
+                pred->dirpred.gskew->config.gskew.pht3[pht3_index] -= 1;
+
+          }
             
         } else {
 
-          // Casos not-taken
-          if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] > 0) pred->dirpred.gskew->config.gskew.pht1[pht1_index] -= 1;
-          if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] > 0) pred->dirpred.gskew->config.gskew.pht2[pht2_index] -= 1;
-          if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] > 0) pred->dirpred.gskew->config.gskew.pht3[pht3_index] -= 1;
+          // Tomado
+          if(taken != 0) {
+
+            if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] <= 2)
+                pred->dirpred.gskew->config.gskew.pht1[pht1_index] += 1;
+
+            if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] <= 2)
+                pred->dirpred.gskew->config.gskew.pht2[pht2_index] += 1;
+
+            if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] <= 2)
+                pred->dirpred.gskew->config.gskew.pht3[pht3_index] += 1;
+
+          } else {
+
+            if(pred->dirpred.gskew->config.gskew.pht1[pht1_index] > 0)
+                pred->dirpred.gskew->config.gskew.pht1[pht1_index] -= 1;
+
+            if(pred->dirpred.gskew->config.gskew.pht2[pht2_index] > 0)
+                pred->dirpred.gskew->config.gskew.pht2[pht2_index] -= 1;
+
+            if(pred->dirpred.gskew->config.gskew.pht3[pht3_index] > 0)
+                pred->dirpred.gskew->config.gskew.pht3[pht3_index] -= 1;
+
+          }
 
         }
 
